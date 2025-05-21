@@ -1,12 +1,9 @@
-// This is your Prisma schema file,
-// learn more about it in the docs: https://pris.ly/d/prisma-schema
-
 generator client {
   provider = "prisma-client-js"
 }
 
 datasource db {
-provider = "sqlite"
+  provider = "sqlite"
   url      = env("DATABASE_URL")
 }
 
@@ -22,8 +19,8 @@ model Address {
 }
 
 model User {
-  id                  String              @id @default(uuid())
-  email               String
+  id                  Int              @id @default(autoincrement())
+  email               String           @unique
   username            String
   password            String
   Profile             Profile?
@@ -35,15 +32,15 @@ model User {
   Trainings           Training[]
   Diplomas            Diploma[]
   Applications        Application[]
-  updatedAt           DateTime            @default(now())
-  createdAt           DateTime            @updatedAt
+  updatedAt           DateTime         @default(now())
+  createdAt           DateTime         @updatedAt
 }
 
 model Document {
   id     String       @id @default(uuid())
   type   DocumentType
   User   User         @relation(fields: [userId], references: [id])
-  userId String       @unique
+  userId Int          @unique
 }
 
 model Profile {
@@ -56,12 +53,12 @@ model Profile {
   siret              String?  @default("")
   registrationNumber String?  @default("")
   Address            Address?
-  smallDayRate       Int?     @default(0) // Day Rate for 7days or less
-  mediumDayRate      Int?     @default(0) // Day Rate for 30days or less
-  highDayRate        Int?     @default(0) // Day Rate for 30days or more
+  smallDayRate       Int?     @default(0)
+  mediumDayRate      Int?     @default(0)
+  highDayRate        Int?     @default(0)
   isEmployed         Boolean? @default(false)
   User               User     @relation(fields: [userId], references: [id])
-  userId             String   @unique
+  userId             Int      @unique
 }
 
 model Thread {
@@ -69,7 +66,7 @@ model Thread {
   subject   String
   posts     Post[]
   Author    User     @relation(fields: [authorId], references: [id])
-  authorId  String
+  authorId  Int
   updatedAt DateTime @default(now())
   createdAt DateTime @updatedAt
 }
@@ -78,7 +75,7 @@ model Post {
   id        Int      @id @default(autoincrement())
   content   String
   Author    User     @relation(fields: [authorId], references: [id])
-  authorId  String
+  authorId  Int
   Thread    Thread   @relation(fields: [threadId], references: [id])
   threadId  Int
   updatedAt DateTime @default(now())
@@ -93,7 +90,7 @@ model CustomerReference {
   mark       Int
   commentary String
   User       User     @relation(fields: [userId], references: [id])
-  userId     String
+  userId     Int
   updatedAt  DateTime @default(now())
   createdAt  DateTime @updatedAt
 }
@@ -106,7 +103,7 @@ model Experience {
   languages   Json
   Domains     Domain[]
   User        User     @relation(fields: [userId], references: [id])
-  userId      String
+  userId      Int
   updatedAt   DateTime @default(now())
   createdAt   DateTime @updatedAt
 }
@@ -118,7 +115,7 @@ model Training {
   skills      Json
   Domains     Domain[]
   User        User     @relation(fields: [userId], references: [id])
-  userId      String
+  userId      Int
   updatedAt   DateTime @default(now())
   createdAt   DateTime @updatedAt
 }
@@ -130,7 +127,7 @@ model Diploma {
   skills    Json
   languages Json
   User      User        @relation(fields: [userId], references: [id])
-  userId    String
+  userId    Int
   Domain    Domain      @relation(fields: [domainId], references: [id])
   domainId  Int
   updatedAt DateTime    @default(now())
@@ -147,7 +144,7 @@ model Application {
   Domain         Domain   @relation(fields: [domainId], references: [id])
   domainId       Int
   User           User     @relation(fields: [userId], references: [id])
-  userId         String
+  userId         Int
   updatedAt      DateTime @default(now())
   createdAt      DateTime @updatedAt
 }

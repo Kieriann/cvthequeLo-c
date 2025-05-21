@@ -1,25 +1,26 @@
-import jwt from 'jsonwebtoken'
+console.log('🧩 middleware appelé');
 
-export function authMiddleware(req, res, next) {
-  const authHeader = req.headers.authorization;
-  if (!authHeader) {
-    return res.status(401).json({ error: 'Token manquant' });
+const jwt = require('jsonwebtoken');
+
+function authMiddleware(req, res, next) {
+  const authHeader = req.headers['authorization'];
+  console.log('🔵 Header reçu :', authHeader);
+
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    return res.status(401).json({ error: 'Token manquant ou mal formé' });
   }
 
   const token = authHeader.split(' ')[1];
-  if (!token) {
-    return res.status(401).json({ error: 'Token manquant' });
-  }
 
   try {
     const payload = jwt.verify(token, process.env.JWT_SECRET);
-
-    req.user = {
-      id: parseInt(payload.userId, 10),
-    };
-
+    console.log('✅ Token décodé :', payload);
+    req.userId = payload.userId;
     next();
   } catch (err) {
+    console.log('❌ Erreur jwt.verify :', err.message);
     return res.status(401).json({ error: 'Token invalide' });
   }
 }
+
+module.exports = authMiddleware;
