@@ -10,6 +10,7 @@ const testRoutes = require('./src/routes/test.js');
 const authRoutes = require('./src/routes/authRoutes.js');
 const profileRoutes = require('./src/routes/profile.js');
 
+
 const app = express();
 
 app.use(cors({
