@@ -4,6 +4,9 @@ const multer = require('multer')
 const upload = multer()
 const { PrismaClient } = require('@prisma/client')
 const prisma = new PrismaClient()
+const authenticateToken = require('../middlewares/authMiddleware')
+router.use(authenticateToken)
+
 
 
 router.post('/profil', upload.fields([{ name: 'photo' }, { name: 'cv' }]), async (req, res) => {
@@ -31,16 +34,19 @@ router.post('/profil', upload.fields([{ name: 'photo' }, { name: 'cv' }]), async
     await prisma.experience.deleteMany({ where: { userId } })
 
     // 4. Recréer les expériences
-    for (const exp of experiencesData) {
-      await prisma.experience.create({
-        data: {
-          ...exp,
-          userId,
-          skills: JSON.stringify(exp.skills || []),
-          languages: JSON.stringify(exp.languages || []),
-        },
-      })
-    }
+for (const exp of experiencesData) {
+  await prisma.experience.create({
+    data: {
+      title: exp.title,
+      description: exp.description,
+      skills: JSON.stringify(exp.skills || []),
+      languages: JSON.stringify(exp.languages || []),
+      userId,
+    },
+  })
+}
+
+
 
     // 5. Sauvegarder les fichiers (facultatif)
     const photoFile = req.files?.photo?.[0]

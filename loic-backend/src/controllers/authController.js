@@ -66,15 +66,15 @@ async function login(req, res) {
 }
 
 async function me(req, res) {
-  console.log('📨 /me userId =', req.userId);
+  console.log('📨 /me userId =', req.user.id);
 
-  if (!req.userId) {
+  if (!req.user.id) {
     return res.status(401).json({ error: 'Utilisateur non authentifié' });
   }
 
   try {
     const user = await prisma.user.findUnique({
-      where: { id: req.userId },
+      where: { id: req.user.id },
       select: { id: true, email: true },
     });
 
