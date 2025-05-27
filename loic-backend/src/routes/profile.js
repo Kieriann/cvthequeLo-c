@@ -77,12 +77,17 @@ for (const exp of experiencesData) {
 
 router.get('/profil', async (req, res) => {
   try {
-    const userId = req.user.id // ou à adapter selon ton système d'auth
+    const userId = req.user.id
 
-    const profile = await prisma.profile.findUnique({
-      where: { userId },
-      include: {
-        Address: true,
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      select: {
+        isAdmin: true,
+        Profile: {
+          include: {
+            Address: true,
+          },
+        },
       },
     })
 
@@ -95,7 +100,8 @@ router.get('/profil', async (req, res) => {
     })
 
     res.json({
-      profile,
+      isAdmin: user.isAdmin,
+      profile: user.Profile,
       experiences,
       documents,
     })
@@ -104,6 +110,7 @@ router.get('/profil', async (req, res) => {
     res.status(500).json({ error: 'Erreur serveur' })
   }
 })
+
 
 
 module.exports = router

@@ -23,6 +23,7 @@ model User {
   email               String           @unique
   username            String
   password            String
+  isAdmin             Boolean @default(false)
   Profile             Profile?
   Documents           Document[]
   Threads             Thread[]

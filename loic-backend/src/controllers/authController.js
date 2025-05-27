@@ -20,19 +20,23 @@ async function signup(req, res) {
   const hashedPassword = await bcrypt.hash(password, 10);
   const username = email.split('@')[0];
 
-  const user = await prisma.user.create({
-    data: {
-      email,
-      username,
-      password: hashedPassword,
-    },
-  });
+const user = await prisma.user.create({
+  data: {
+    email,
+    username,
+    password: hashedPassword,
+    isAdmin: email === 'loic.bernard15@yahoo.fr', // Loïc seul devient admin
+  },
+})
+;
 
   console.log('🧪 User créé :', user);
 
-  const token = jwt.sign({ userId: user.id }, process.env.JWT_SECRET, {
-    expiresIn: '7d',
-  });
+const token = jwt.sign(
+  { userId: user.id, isAdmin: user.isAdmin },
+  process.env.JWT_SECRET,
+  { expiresIn: '7d' }
+);
 
   console.log('🎫 Token généré avec userId :', user.id);
 

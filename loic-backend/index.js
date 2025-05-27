@@ -9,8 +9,7 @@ dotenv.config();
 const testRoutes = require('./src/routes/test.js');
 const authRoutes = require('./src/routes/authRoutes.js');
 const profileRoutes = require('./src/routes/profile.js');
-
-
+const adminRoutes = require('./src/routes/admin')
 const app = express();
 
 app.use(cors({
@@ -24,6 +23,8 @@ app.use(express.json());
 app.use('/api/auth', authRoutes);
 app.use('/api/test', testRoutes);
 app.use('/api/profile', profileRoutes);
+app.use('/api/admin', adminRoutes);
+
 
 app.get('/test', (req, res) => {
   console.log('✅ /test appelé');
