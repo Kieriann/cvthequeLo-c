@@ -3,6 +3,7 @@ console.log('Fichier index.js exécuté');
 const express = require('express');
 const cors = require('cors');
 const dotenv = require('dotenv');
+const path = require('path')
 
 dotenv.config();
 
@@ -24,6 +25,8 @@ app.use('/api/auth', authRoutes);
 app.use('/api/test', testRoutes);
 app.use('/api/profile', profileRoutes);
 app.use('/api/admin', adminRoutes);
+app.use('/uploads', express.static(path.join(__dirname, 'uploads')))
+
 
 
 app.get('/test', (req, res) => {

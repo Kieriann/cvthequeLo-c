@@ -1,17 +1,34 @@
 const express = require('express')
 const router = express.Router()
 const multer = require('multer')
-const upload = multer()
+const fs = require('fs')
+const path = require('path')
 const { PrismaClient } = require('@prisma/client')
 const prisma = new PrismaClient()
 const authenticateToken = require('../middlewares/authMiddleware')
+
 router.use(authenticateToken)
 
+const uploadDir = path.join(__dirname, '../../uploads')
+if (!fs.existsSync(uploadDir)) fs.mkdirSync(uploadDir, { recursive: true })
 
+const storage = multer.diskStorage({
+  destination: function (req, file, cb) {
+    cb(null, uploadDir)
+  },
+  filename: function (req, file, cb) {
+    cb(null, file.originalname)
+  }
+})
+const upload = multer({ storage })
 
-router.post('/profil', upload.fields([{ name: 'photo' }, { name: 'cv' }]), async (req, res) => {
+router.post('/profil', upload.fields([
+  { name: 'photo' },
+  { name: 'cv' },
+  { name: 'realFiles' }
+]), async (req, res) => {
   try {
-    const userId = req.user.id // ou extrait du token
+    const userId = req.user.id
     const profileData = JSON.parse(req.body.profile)
     const addressData = JSON.parse(req.body.address)
     const experiencesData = JSON.parse(req.body.experiences)
@@ -34,19 +51,27 @@ router.post('/profil', upload.fields([{ name: 'photo' }, { name: 'cv' }]), async
     await prisma.experience.deleteMany({ where: { userId } })
 
     // 4. Recréer les expériences
-for (const exp of experiencesData) {
-  await prisma.experience.create({
-    data: {
-      title: exp.title,
-      description: exp.description,
-      skills: JSON.stringify(exp.skills || []),
-      languages: JSON.stringify(exp.languages || []),
-      userId,
-    },
-  })
-}
+    const realFiles = req.files?.realFiles || []
+    for (let i = 0; i < experiencesData.length; i++) {
+      const exp = experiencesData[i]
+      const realFile = realFiles.find(f => f.originalname === exp.realFilePath)
 
+      await prisma.experience.create({
+  data: {
+    title: exp.title,
+    client: exp.client || '',
+    description: exp.description,
+    domains: exp.domains || '',
+    skills: JSON.stringify(exp.skills || []),
+    languages: Array.isArray(exp.languages) ? exp.languages : [],
+    realTitle: exp.realTitle || '',
+    realDescription: exp.realDescription || '',
+    realFilePath: exp.realFilePath || '', 
+    userId,
+  },
+})
 
+    }
 
     // 5. Sauvegarder les fichiers (facultatif)
     const photoFile = req.files?.photo?.[0]
@@ -83,21 +108,12 @@ router.get('/profil', async (req, res) => {
       where: { id: userId },
       select: {
         isAdmin: true,
-        Profile: {
-          include: {
-            Address: true,
-          },
-        },
+        Profile: { include: { Address: true } },
       },
     })
 
-    const experiences = await prisma.experience.findMany({
-      where: { userId },
-    })
-
-    const documents = await prisma.document.findMany({
-      where: { userId },
-    })
+    const experiences = await prisma.experience.findMany({ where: { userId } })
+    const documents = await prisma.document.findMany({ where: { userId } })
 
     res.json({
       isAdmin: user.isAdmin,
@@ -106,11 +122,9 @@ router.get('/profil', async (req, res) => {
       documents,
     })
   } catch (err) {
-    console.error(err)
+    console.error('Erreur GET /profil', err)
     res.status(500).json({ error: 'Erreur serveur' })
   }
 })
-
-
 
 module.exports = router
