@@ -18,9 +18,11 @@ const app = express()
 // ─── Middlewares globaux ───────────────────────────────────────────
 
 app.use(cors({
-  origin: 'http://localhost:5173',
+  origin: true,
   credentials: true,
 }))
+
+
 
 app.use(express.json())
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')))
@@ -44,10 +46,15 @@ app.get('/', (req, res) => {
 
 // ─── Gestion globale des erreurs ───────────────────────────────────
 
+// ─── Gestion globale des erreurs ───────────────────────────────────
 app.use((err, req, res, next) => {
-  console.error('Erreur serveur :', err.stack)
-  res.status(500).send('Erreur interne du serveur')
+  console.error('💥 Erreur serveur :', err.stack)
+  res
+    .status(500)
+    .json({ error: err.message, stack: err.stack.split('\n').slice(0,5) })
 })
+
+
 
 // ─── Lancement du serveur ──────────────────────────────────────────
 
