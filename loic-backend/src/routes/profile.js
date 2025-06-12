@@ -9,6 +9,10 @@ const authenticateToken = require('../middlewares/authMiddleware')
 
 router.use(authenticateToken)
 
+//
+// ─── Configuration du dossier uploads et de Multer ─────────────────
+//
+
 const uploadDir = path.join(__dirname, '../../uploads')
 if (!fs.existsSync(uploadDir)) fs.mkdirSync(uploadDir, { recursive: true })
 
@@ -22,6 +26,10 @@ const storage = multer.diskStorage({
 })
 const upload = multer({ storage })
 
+//
+// ─── Route POST pour enregistrer un profil complet ─────────────────
+//
+
 router.post('/profil', upload.fields([
   { name: 'photo' },
   { name: 'cv' },
@@ -33,47 +41,41 @@ router.post('/profil', upload.fields([
     const addressData = JSON.parse(req.body.address)
     const experiencesData = JSON.parse(req.body.experiences)
 
-    // 1. Créer ou mettre à jour Profile
     const profile = await prisma.profile.upsert({
       where: { userId },
       update: { ...profileData },
       create: { ...profileData, userId },
     })
 
-    // 2. Créer ou mettre à jour Address
     await prisma.address.upsert({
       where: { profileId: profile.id },
       update: { ...addressData },
       create: { ...addressData, profileId: profile.id },
     })
 
-    // 3. Supprimer les expériences précédentes
     await prisma.experience.deleteMany({ where: { userId } })
 
-    // 4. Recréer les expériences
     const realFiles = req.files?.realFiles || []
     for (let i = 0; i < experiencesData.length; i++) {
       const exp = experiencesData[i]
       const realFile = realFiles.find(f => f.originalname === exp.realFilePath)
 
       await prisma.experience.create({
-  data: {
-    title: exp.title,
-    client: exp.client || '',
-    description: exp.description,
-    domains: exp.domains || '',
-    skills: JSON.stringify(exp.skills || []),
-    languages: Array.isArray(exp.languages) ? exp.languages : [],
-    realTitle: exp.realTitle || '',
-    realDescription: exp.realDescription || '',
-    realFilePath: exp.realFilePath || '', 
-    userId,
-  },
-})
-
+        data: {
+          title: exp.title,
+          client: exp.client || '',
+          description: exp.description,
+          domains: exp.domains || '',
+          skills: JSON.stringify(exp.skills || []),
+          languages: Array.isArray(exp.languages) ? exp.languages : [],
+          realTitle: exp.realTitle || '',
+          realDescription: exp.realDescription || '',
+          realFilePath: exp.realFilePath || '',
+          userId,
+        },
+      })
     }
 
-    // 5. Sauvegarder les fichiers (facultatif)
     const photoFile = req.files?.photo?.[0]
     const cvFile = req.files?.cv?.[0]
 
@@ -99,6 +101,10 @@ router.post('/profil', upload.fields([
     res.status(500).json({ error: 'Erreur serveur' })
   }
 })
+
+//
+// ─── Route GET pour récupérer toutes les infos d’un utilisateur ───
+//
 
 router.get('/profil', async (req, res) => {
   try {

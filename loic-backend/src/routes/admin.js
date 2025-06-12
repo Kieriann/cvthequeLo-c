@@ -3,7 +3,13 @@ const router = express.Router()
 const { PrismaClient } = require('@prisma/client')
 const prisma = new PrismaClient()
 const authenticateToken = require('../middlewares/authMiddleware')
+
+// ─── Protection de la route par token ─────────────────────────────
 router.use(authenticateToken)
+
+//
+// ─── Recherche des profils avec filtre texte libre ─────────────────
+//
 
 router.get('/profils', async (req, res) => {
   const search = req.query.search || ''
@@ -20,7 +26,6 @@ router.get('/profils', async (req, res) => {
                 OR: [
                   { title: { contains: search } },
                   { description: { contains: search } },
-                  // ❌ skills et languages sont en Json → pas de filtre ici
                 ],
               },
             },
@@ -50,7 +55,7 @@ router.get('/profils', async (req, res) => {
 
     res.json(profils)
   } catch (err) {
-    console.error('❌ Erreur admin profils :', err)
+    console.error('Erreur admin profils :', err)
     res.status(500).json({ error: 'Erreur serveur' })
   }
 })
