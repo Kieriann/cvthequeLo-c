@@ -14,7 +14,7 @@ if (!fs.existsSync(uploadDir)) fs.mkdirSync(uploadDir, { recursive: true })
 
 const storage = multer.diskStorage({
   destination: (req, file, cb) => cb(null, uploadDir),
-  filename: (req, file, cb) => cb(null, file.originalname)
+  filename:    (req, file, cb) => cb(null, file.originalname)
 })
 const upload = multer({ storage })
 
@@ -27,81 +27,94 @@ router.post(
   ]),
   async (req, res) => {
     try {
-      const userId = req.user.id
-      const profileData     = JSON.parse(req.body.profile)
-      const addressData     = JSON.parse(req.body.address)
-      const experiencesData = JSON.parse(req.body.experiences)
-      const prestationsData = JSON.parse(req.body.prestations)
+      const userId            = req.user.id
+      const profileData       = JSON.parse(req.body.profile)
+      const addressData       = JSON.parse(req.body.address)
+      const experiencesData   = JSON.parse(req.body.experiences)
+      const prestationsData   = JSON.parse(req.body.prestations)
 
-      // availableDate optionnel
-      const { availableDate, ...restProfile } = profileData
-      const availableDateParsed = availableDate ? new Date(availableDate) : undefined
+      // extraire teleworkDays + availableDate
+      const {
+        availableDate,
+        teleworkDays = 0,
+        ...restProfile
+      } = profileData
 
+      const availableDateParsed = availableDate
+        ? new Date(availableDate)
+        : undefined
+
+      // upsert Profile en incluant teleworkDays
       const profile = await prisma.profile.upsert({
         where: { userId },
         update: {
           ...restProfile,
+          teleworkDays,
           ...(availableDateParsed && { availableDate: availableDateParsed })
         },
         create: {
           ...restProfile,
+          teleworkDays,
           ...(availableDateParsed && { availableDate: availableDateParsed }),
           userId
         }
       })
 
+      // address
       await prisma.address.upsert({
-        where: { profileId: profile.id },
-        update: { ...addressData },
-        create: { ...addressData, profileId: profile.id }
+        where:   { profileId: profile.id },
+        update:  { ...addressData },
+        create:  { ...addressData, profileId: profile.id }
       })
 
+      // expériences
       await prisma.experience.deleteMany({ where: { userId } })
       const realFiles = req.files?.realFiles || []
       for (let i = 0; i < experiencesData.length; i++) {
         const exp = experiencesData[i]
         await prisma.experience.create({
           data: {
-            title: exp.title,
-            client: exp.client || '',
-            description: exp.description,
-            domains: exp.domains || '',
-            skills: JSON.stringify(exp.skills || []),
-            languages: Array.isArray(exp.languages) ? exp.languages : [],
-            realTitle: exp.realTitle || '',
+            title:           exp.title,
+            client:          exp.client || '',
+            description:     exp.description,
+            domains:         exp.domains || '',
+            skills:          JSON.stringify(exp.skills || []),
+            languages:       Array.isArray(exp.languages) ? exp.languages : [],
+            realTitle:       exp.realTitle || '',
             realDescription: exp.realDescription || '',
-            realFilePath: exp.realFilePath || '',
+            realFilePath:    exp.realFilePath || '',
             userId
           }
         })
       }
 
-      // Prestations
+      // prestations
       await prisma.prestation.deleteMany({ where: { userId } })
       for (const p of prestationsData) {
         await prisma.prestation.create({
           data: {
-            type: p.type || '',
-            tech: p.tech || '',
-            level: p.level || '',
+            type:   p.type || '',
+            tech:   p.tech || '',
+            level:  p.level || '',
             userId
           }
         })
       }
 
+      // documents
       const photoFile = req.files?.photo?.[0]
       const cvFile    = req.files?.cv?.[0]
 
       if (photoFile) {
         await prisma.document.upsert({
-          where: { userId },
+          where:  { userId },
           update: { type: 'ID_PHOTO' },
           create: { userId, type: 'ID_PHOTO' }
         })
       }
       if (cvFile) {
         await prisma.document.upsert({
-          where: { userId },
+          where:  { userId },
           update: { type: 'CV' },
           create: { userId, type: 'CV' }
         })
@@ -130,8 +143,8 @@ router.get('/profil', async (req, res) => {
     const prestations = await prisma.prestation.findMany({ where: { userId } })
 
     res.json({
-      isAdmin: user.isAdmin,
-      profile: user.Profile,
+      isAdmin:     user.isAdmin,
+      profile:     user.Profile,
       experiences,
       documents,
       prestations
