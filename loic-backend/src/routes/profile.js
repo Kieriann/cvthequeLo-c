@@ -1,157 +1,191 @@
 const express = require('express')
-const router = express.Router()
-const multer = require('multer')
-const fs = require('fs')
-const path = require('path')
+const router  = express.Router()
+const multer  = require('multer')
 const { PrismaClient } = require('@prisma/client')
-const prisma = new PrismaClient()
+const prisma  = new PrismaClient()
 const authenticateToken = require('../middlewares/authMiddleware')
+const { uploadImage, uploadDocument, deleteFile } = require('../utils/cloudinary')
 
 router.use(authenticateToken)
 
-const uploadDir = path.join(__dirname, '../../uploads')
-if (!fs.existsSync(uploadDir)) fs.mkdirSync(uploadDir, { recursive: true })
+const upload = multer({ storage: multer.memoryStorage() })
 
-const storage = multer.diskStorage({
-  destination: (req, file, cb) => cb(null, uploadDir),
-  filename:    (req, file, cb) => cb(null, file.originalname)
-})
-const upload = multer({ storage })
+// helper : ne plante jamais si la chaîne est vide / undefined
+const safeParse = (str, fallback = {}) => {
+  try { return JSON.parse(str ?? '') } catch { return fallback }
+}
 
-router.post(
-  '/profil',
-  upload.fields([
-    { name: 'photo' },
-    { name: 'cv' },
-    { name: 'realFiles' }
-  ]),
-  async (req, res) => {
-    try {
-      const userId            = req.user.id
-      const profileData       = JSON.parse(req.body.profile)
-      const addressData       = JSON.parse(req.body.address)
-      const experiencesData   = JSON.parse(req.body.experiences)
-      const prestationsData   = JSON.parse(req.body.prestations)
+/* ───── POST /api/profile/profil ─────────────────────────────────────────────────── */
+router.post('/profil', upload.any(), async (req, res) => {
+  try {
+    const userId = req.user.id
+    const profileData     = safeParse(req.body.profile)
+    const addressData     = safeParse(req.body.address)
+    const experiencesData = safeParse(req.body.experiences, [])
+    const prestationsData = safeParse(req.body.prestations, [])
 
-      // extraire teleworkDays + availableDate
-      const {
-        availableDate,
-        teleworkDays = 0,
-        ...restProfile
-      } = profileData
+    // upsert du profil
+    const { availableDate, ...restProfile } = profileData
+    const availableDateParsed = availableDate ? new Date(availableDate) : undefined
+    const profile = await prisma.profile.upsert({
+      where:  { userId },
+      update: { ...restProfile, ...(availableDateParsed && { availableDate: availableDateParsed }) },
+      create: { ...restProfile, ...(availableDateParsed && { availableDate: availableDateParsed }), userId }
+    })
 
-      const availableDateParsed = availableDate
-        ? new Date(availableDate)
-        : undefined
+    // upsert de l'adresse
+    await prisma.address.upsert({
+      where:  { profileId: profile.id },
+      update: { ...addressData },
+      create: { ...addressData, profileId: profile.id }
+    })
 
-      // upsert Profile en incluant teleworkDays
-      const profile = await prisma.profile.upsert({
-        where: { userId },
-        update: {
-          ...restProfile,
-          teleworkDays,
-          ...(availableDateParsed && { availableDate: availableDateParsed })
-        },
-        create: {
-          ...restProfile,
-          teleworkDays,
-          ...(availableDateParsed && { availableDate: availableDateParsed }),
+    // expériences
+    await prisma.experience.deleteMany({ where: { userId } })
+    for (const exp of experiencesData) {
+      await prisma.experience.create({
+        data: {
+          title:       exp.title,
+          client:      exp.client || '',
+          description: exp.description,
+          domains:     exp.domains || '',
+          skills:      JSON.stringify(exp.skills || []),
+          languages:   Array.isArray(exp.languages) ? exp.languages : [],
           userId
         }
       })
-
-      // address
-      await prisma.address.upsert({
-        where:   { profileId: profile.id },
-        update:  { ...addressData },
-        create:  { ...addressData, profileId: profile.id }
-      })
-
-      // expériences
-      await prisma.experience.deleteMany({ where: { userId } })
-      const realFiles = req.files?.realFiles || []
-      for (let i = 0; i < experiencesData.length; i++) {
-        const exp = experiencesData[i]
-        await prisma.experience.create({
-          data: {
-            title:           exp.title,
-            client:          exp.client || '',
-            description:     exp.description,
-            domains:         exp.domains || '',
-            skills:          JSON.stringify(exp.skills || []),
-            languages:       Array.isArray(exp.languages) ? exp.languages : [],
-            realTitle:       exp.realTitle || '',
-            realDescription: exp.realDescription || '',
-            realFilePath:    exp.realFilePath || '',
-            userId
-          }
-        })
-      }
-
-      // prestations
-      await prisma.prestation.deleteMany({ where: { userId } })
-      for (const p of prestationsData) {
-        await prisma.prestation.create({
-          data: {
-            type:   p.type || '',
-            tech:   p.tech || '',
-            level:  p.level || '',
-            userId
-          }
-        })
-      }
-
-      // documents
-      const photoFile = req.files?.photo?.[0]
-      const cvFile    = req.files?.cv?.[0]
-
-      if (photoFile) {
-        await prisma.document.upsert({
-          where:  { userId },
-          update: { type: 'ID_PHOTO' },
-          create: { userId, type: 'ID_PHOTO' }
-        })
-      }
-      if (cvFile) {
-        await prisma.document.upsert({
-          where:  { userId },
-          update: { type: 'CV' },
-          create: { userId, type: 'CV' }
-        })
-      }
-
-      res.status(200).json({ success: true })
-    } catch (err) {
-      console.error(err)
-      res.status(500).json({ error: 'Erreur serveur' })
     }
-  }
-)
 
-router.get('/profil', async (req, res) => {
-  try {
-    const userId = req.user.id
+    // prestations
+    await prisma.prestation.deleteMany({ where: { userId } })
+    for (const p of prestationsData) {
+      await prisma.prestation.create({ data: { ...p, userId } })
+    }
+
+    // suppression conditionnelle photo / CV
+    if (req.body.removePhoto === 'true') {
+      const photoDoc = await prisma.document.findFirst({ where: { userId, type: 'ID_PHOTO' } })
+      if (photoDoc) await prisma.document.delete({ where: { id: photoDoc.id } })
+    }
+    if (req.body.removeCV === 'true') {
+      const cvDoc = await prisma.document.findFirst({ where: { userId, type: 'cv' } })
+      if (cvDoc) await prisma.document.delete({ where: { id: cvDoc.id } })
+    }
+
+    // upload photo
+    const photoFile = req.files?.find(f => f.fieldname === 'photo')
+    if (photoFile?.buffer) {
+      const result = await uploadImage(photoFile.buffer, photoFile.originalname)
+      await prisma.document.deleteMany({ where: { userId, type: 'ID_PHOTO' } })
+      await prisma.document.create({
+        data: {
+          userId,
+          type:         'ID_PHOTO',
+          fileName:     result.original_filename,
+          originalName: result.original_filename,
+          publicId:     result.publicId,
+          version:      parseInt(result.version, 10),
+          format:       result.format,
+        }
+      })
+    }
+
+    // upload CV
+    const cvFile = req.files?.find(f => f.fieldname === 'cv')
+    if (cvFile?.buffer) {
+      const result = await uploadDocument(cvFile.buffer, cvFile.originalname)
+      await prisma.document.deleteMany({ where: { userId, type: 'cv' } })
+      await prisma.document.create({
+        data: {
+          userId,
+          type:         'cv',
+          fileName:     result.original_filename || cvFile.originalname,
+          originalName: cvFile.originalname || result.original_filename,
+          publicId:     result.publicId,
+          version:      parseInt(result.version, 10),
+          format:       result.format,
+        }
+      })
+    }
+
+    // Rechargement du profil complet après tous les traitements
     const user = await prisma.user.findUnique({
-      where: { id: userId },
-      select: {
-        isAdmin: true,
-        Profile: { include: { Address: true } }
+      where: { id: req.user.id },
+      include: {
+        Profile: {
+          include: { Address: true }
+        },
+        Experiences: true,
+        Prestations: true,
+        realisations: {
+          include: { files: true, technos: true }
+        }
       }
     })
-    const experiences = await prisma.experience.findMany({ where: { userId } })
-    const documents   = await prisma.document.findMany({ where: { userId } })
-    const prestations = await prisma.prestation.findMany({ where: { userId } })
+
+    const documents = await prisma.document.findMany({
+      where: { userId: user.id },
+      select: {
+        id: true, type: true,
+        originalName: true,
+        publicId: true, version: true, format: true
+      }
+    })
+
+    res.status(200).json({
+      isAdmin:      user.isAdmin,
+      profile:      user.Profile || {},
+      address:      user.Profile?.Address || {},
+      experiences:  user.Experiences || [],
+      prestations:  user.Prestations || [],
+      documents,
+      realisations: user.realisations || []
+    })
+  } catch (err) {
+    console.error("ERREUR DANS L'UPLOAD DU PROFIL :", err)
+    res.status(500).json({ error: 'Erreur serveur', details: err.message })
+  }
+})
+
+/* ───── GET /api/profile/profil ─────────────────────────────────────────────────── */
+router.get('/profil', async (req, res) => {
+  try {
+    const user = await prisma.user.findUnique({
+      where: { id: req.user.id },
+      include: {
+        Profile: {
+          include: { Address: true }
+        },
+        Experiences: true,
+        Prestations: true,
+        realisations: {
+          include: { files: true, technos: true }
+        }
+      }
+    })
+    if (!user) return res.status(404).json({ error: 'Utilisateur non trouvé' })
+
+    const documents = await prisma.document.findMany({
+      where: { userId: user.id },
+      select: {
+        id: true, type: true,
+        originalName: true,
+        publicId: true, version: true, format: true
+      }
+    })
 
     res.json({
-      isAdmin:     user.isAdmin,
-      profile:     user.Profile,
-      experiences,
+      isAdmin:      user.isAdmin,
+      profile:      user.Profile || {},
+      address:      user.Profile?.Address || {},
+      experiences:  user.Experiences || [],
+      prestations:  user.Prestations || [],
       documents,
-      prestations
+      realisations: user.realisations || []
     })
   } catch (err) {
     console.error('Erreur GET /profil', err)
-    res.status(500).json({ error: 'Erreur serveur' })
+    res.status(500).json({ error: 'Erreur serveur', details: err.message })
   }
 })
 

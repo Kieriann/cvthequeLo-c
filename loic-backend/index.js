@@ -1,85 +1,76 @@
-// index.js
-console.log('Fichier index.js exécuté')
 
 const express = require('express')
 const cors = require('cors')
 const dotenv = require('dotenv')
 const path = require('path')
-const { PrismaClient } = require('@prisma/client')
 
 dotenv.config()
 
-const prisma = new PrismaClient()
+// ─── Création de l'app Express ───────────────────────────────────────
+const app = express()
 
-async function bootstrap() {
-  // créer la colonne teleworkDays si elle n'existe pas
-  await prisma.$executeRawUnsafe(`
-    ALTER TABLE "Profile"
-    ADD COLUMN IF NOT EXISTS "teleworkDays" INTEGER NOT NULL DEFAULT 0;
-  `)
+// ─── Health check ────────────────────────────────────────────────────
+app.get('/healthz', (_req, res) => {
+  res.status(200).send('OK')
+})
 
-  // ─── Création de l'app Express ───────────────────────────────────────
-  const app = express()
+// ─── CORS ────────────────────────────────────────────────────────────
+app.use(cors({
+  origin: [
+    'https://freesbiz.fr',
+    'https://loic-frontend.vercel.app',
+    'https://loic-frontend-gkkad1wxu-kierianns-projects.vercel.app',
+  ],
+  credentials: true,
+  methods: ['GET','POST','PUT','DELETE','OPTIONS'],
+  allowedHeaders: ['Content-Type','Authorization']
+}));
 
-  // ─── Health check ────────────────────────────────────────────────────
-  app.get('/healthz', (_req, res) => {
-    res.status(200).send('OK')
-  })
 
-  // ─── CORS ────────────────────────────────────────────────────────────
-  const allowedOrigins = [process.env.FRONTEND_URL || '*']
-  app.use(cors({
-    origin: (origin, callback) => {
-      if (!origin || allowedOrigins.includes(origin)) {
-        return callback(null, true)
-      }
-      callback(new Error('CORS non autorisé'))
-    },
-    credentials: true,
-    allowedHeaders: ['Content-Type', 'Authorization'],
-    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS']
-  }))
-  app.options('*', cors())
 
-  // ─── Middlewares globaux ─────────────────────────────────────────────
-  app.use(express.json())
-  app.use('/uploads', express.static(path.join(__dirname, 'uploads')))
+// ─── Middlewares globaux ─────────────────────────────────────────────
+app.use(express.json())
 
-  // ─── Import des routes ───────────────────────────────────────────────
-  const authRoutes    = require('./src/routes/authRoutes.js')
-  const profileRoutes = require('./src/routes/profile.js')
-  const adminRoutes   = require('./src/routes/admin')
+// ─── Import des routes ───────────────────────────────────────────────
+const authRoutes    = require('./src/routes/authRoutes.js')
+const forgotPasswordRoutes = require('./src/routes/forgotPassword')
+const profileRoutes = require('./src/routes/profile.js')
+const adminRoutes   = require('./src/routes/admin')
+const documentRoutes = require('./src/routes/documentRoutes')
+const resetPasswordRoutes = require('./src/routes/resetPassword')
+const realisationRoutes = require('./src/routes/realisations');
 
-  // ─── Routes API ──────────────────────────────────────────────────────
-  app.use('/api/auth',    authRoutes)
-  app.use('/api/profile', profileRoutes)
-  app.use('/api/admin',   adminRoutes)
 
-  // ─── Routes de test/debug ───────────────────────────────────────────
-  app.get('/test', (req, res) => {
-    console.log('/test appelé')
-    res.send('ok')
-  })
-  app.get('/', (req, res) => {
-    res.send('API Loïc en ligne')
-  })
+// ─── Routes API ──────────────────────────────────────────────────────
+app.use('/api/auth',    authRoutes)
+app.use('/api/profile', profileRoutes)
+app.use('/api/admin',   adminRoutes)
+app.use('/api/documents', documentRoutes)
+app.use('/api/realisations', realisationRoutes);
+app.use('/api/forgot-password', forgotPasswordRoutes)
+app.use('/api/reset-password', resetPasswordRoutes)
 
-  // ─── Gestion globale des erreurs ────────────────────────────────────
-  app.use((err, req, res, next) => {
-    console.error('💥 Erreur serveur :', err.stack)
-    res
-      .status(500)
-      .json({ error: err.message, stack: err.stack.split('\n').slice(0,5) })
-  })
 
-  // ─── Lancement du serveur ────────────────────────────────────────────
-  const PORT = process.env.PORT || 4000
-  app.listen(PORT, () => {
-    console.log(`Serveur démarré sur http://localhost:${PORT}`)
-  })
-}
+// ─── Routes de test/debug ───────────────────────────────────────────
+app.get('/test', (req, res) => {
+  console.log('/test appelé')
+  res.send('ok')
+})
 
-bootstrap().catch(err => {
-  console.error('Erreur au démarrage :', err)
-  process.exit(1)
+app.get('/', (req, res) => {
+  res.send('API Loïc en ligne')
+})
+
+// ─── Gestion globale des erreurs ────────────────────────────────────
+app.use((err, req, res, next) => {
+  console.error('💥 Erreur serveur :', err.stack)
+  res
+    .status(500)
+    .json({ error: err.message, stack: err.stack.split('\n').slice(0,5) })
+})
+
+// ─── Lancement du serveur ────────────────────────────────────────────
+const PORT = process.env.PORT || 4000
+app.listen(PORT, () => {
+  console.log(`Serveur démarré sur http://localhost:${PORT}`)
 })

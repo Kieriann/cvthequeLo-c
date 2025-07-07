@@ -1,32 +1,33 @@
-const bcrypt = require('bcrypt')
-const jwt = require('jsonwebtoken')
-const crypto = require('crypto')
-const prisma = require('../utils/prismaClient')
-const { sendEmail } = require('../utils/mailer')
+const bcrypt   = require('bcrypt')
+const jwt      = require('jsonwebtoken')
+const crypto   = require('crypto')
+const prisma   = require('../utils/prismaClient')
+const sgMail   = require('@sendgrid/mail')
+require('dotenv').config()
+
+sgMail.setApiKey(process.env.SENDGRID_API_KEY)
 
 //
 // ─── Création de compte (inscription) ──────────────────────────────
 //
 async function signup(req, res) {
-  const { email, password } = req.body
-  if (!email || !password) {
+  const emailRaw = req.body.email
+  const password = req.body.password
+  if (!emailRaw || !password) {
     return res.status(400).json({ error: 'Email et mot de passe requis' })
   }
 
-  // Vérifier si l’utilisateur existe déjà
+  const email = emailRaw.toLowerCase()
   const existingUser = await prisma.user.findUnique({ where: { email } })
   if (existingUser) {
     return res.status(409).json({ error: 'Email déjà utilisé' })
   }
 
-  // Hasher le mot de passe
   const hashedPassword = await bcrypt.hash(password, 10)
-  const username = email.split('@')[0]
+  const prenom = req.body.firstname || email.split('@')[0]
+  const token          = crypto.randomBytes(32).toString('hex')
+  const username = prenom
 
-  // Générer un token de confirmation unique
-  const emailConfirmationToken = crypto.randomBytes(32).toString('hex')
-
-  // Créer l’utilisateur avec emailConfirmed à false et le token
   const user = await prisma.user.create({
     data: {
       email,
@@ -34,36 +35,24 @@ async function signup(req, res) {
       password: hashedPassword,
       isAdmin: email === 'loic.bernard15@yahoo.fr',
       emailConfirmed: false,
-      emailConfirmationToken,
+      emailConfirmationToken: token,
     },
   })
 
-  // Construire le lien de confirmation
-  const confirmUrl = `${process.env.FRONTEND_URL}/confirm-email?token=${emailConfirmationToken}`
+  const confirmUrl = `${process.env.FRONT_URL}/confirm-email?token=${user.emailConfirmationToken}`
 
-  // Tenter d’envoyer l’email, sans planter si ça échoue
-  try {
-    await sendEmail({
-      to: user.email,
-      subject: 'Confirme ton adresse e-mail',
-      text: `
-Bienvenue chez Free’s Biz !
+  // Envoi du mail via SendGrid
+  await sgMail.send({
+    to:      email,
+    from:    'no-reply@freesbiz.fr',
+    subject: 'Merci pour votre inscription – dernière étape',
+    text: `Bonjour,\n\nMerci pour votre inscription sur Free’s Biz.\n\nPour finaliser votre compte, cliquez sur le lien suivant :\n${confirmUrl}\n\nSi vous n’êtes pas à l’origine de cette demande, vous pouvez ignorer ce message.`,
+    html: `<p>Bonjour,</p><p>Merci pour votre inscription sur <strong>Free’s Biz</strong>.</p><p>Pour finaliser votre compte, cliquez <a href="${confirmUrl}">ici</a>.</p><p>Si vous n’êtes pas à l’origine de cette demande, vous pouvez ignorer ce message.</p>`,
+  })
 
-Pour activer ton compte, clique sur ce lien :
-${confirmUrl}
-
-Si tu n’as pas demandé cet e-mail, ignore-le.
-      `,
-    })
-  } catch (mailErr) {
-    console.error('⚠️ Erreur lors de l’envoi de l’email de confirmation :', mailErr)
-    // On continue quand même, l’inscription est validée même si le mail n’a pas pu partir
-  }
-
-  // Répondre toujours 201 pour valider l’inscription
   return res
     .status(201)
-    .json({ message: 'Inscription réussie ! Vérifie ta boîte mail pour confirmer ton adresse.' })
+    .json({ message: 'Inscription réussie ! Vérifiez vos mails pour confirmer votre adresse.' })
 }
 
 //
@@ -71,19 +60,13 @@ Si tu n’as pas demandé cet e-mail, ignore-le.
 //
 async function confirmEmail(req, res) {
   const { token } = req.query
-  if (!token) {
-    return res.status(400).send('Token manquant')
-  }
+  if (!token) return res.status(400).send('Token manquant')
 
-  // Recherche de l’utilisateur par token
   const user = await prisma.user.findUnique({
-    where: { emailConfirmationToken: token },
+    where: { emailConfirmationToken: String(token) },
   })
-  if (!user) {
-    return res.status(404).send('Token invalide')
-  }
+  if (!user) return res.status(404).send('Token invalide ou expiré')
 
-  // Activation du compte
   await prisma.user.update({
     where: { id: user.id },
     data: {
@@ -101,15 +84,15 @@ async function confirmEmail(req, res) {
 // ─── Connexion ─────────────────────────────────────────────────────
 //
 async function login(req, res) {
-  const { email, password } = req.body
-  if (!email || !password) {
-    return res.status(400).json({ error: 'Email et mot de passe requis' })
-  }
+const emailRaw = req.body.email
+const password = req.body.password
+if (!emailRaw || !password) {
+  return res.status(400).json({ error: 'Email et mot de passe requis' })
+}
+const normalizedEmail = emailRaw.toLowerCase()
+const user = await prisma.user.findUnique({ where: { email: normalizedEmail } })
 
-  const user = await prisma.user.findUnique({ where: { email } })
-  if (!user) {
-    return res.status(404).json({ error: 'Utilisateur non trouvé' })
-  }
+  if (!user) return res.status(404).json({ error: 'Utilisateur non trouvé' })
   if (!user.emailConfirmed) {
     return res.status(403).json({ error: 'Email non confirmé' })
   }
@@ -119,13 +102,13 @@ async function login(req, res) {
     return res.status(401).json({ error: 'Mot de passe incorrect' })
   }
 
-  const token = jwt.sign(
+  const jwtToken = jwt.sign(
     { userId: user.id, isAdmin: user.isAdmin },
     process.env.JWT_SECRET,
     { expiresIn: '7d' }
   )
 
-  res.json({ token, user: { id: user.id, email: user.email } })
+  res.json({ token: jwtToken, user: { id: user.id, email: user.email } })
 }
 
 //
@@ -138,7 +121,7 @@ async function me(req, res) {
 
   const user = await prisma.user.findUnique({
     where: { id: req.user.id },
-    select: { id: true, email: true },
+    select: { id: true, email: true, username: true },
   })
   if (!user) {
     return res.status(404).json({ error: 'Utilisateur non trouvé' })
@@ -147,4 +130,42 @@ async function me(req, res) {
   res.json(user)
 }
 
-module.exports = { signup, confirmEmail, login, me }
+//
+// ─── Réinitialisation du mot de passe ─────────────────────────────
+//
+async function resetPassword(req, res) {
+  const { token, password } = req.body
+  if (!token || !password) return res.status(400).json({ error: 'Données manquantes' })
+
+  try {
+    const decoded = jwt.verify(token, process.env.JWT_SECRET)
+    const hashed = await bcrypt.hash(password, 10)
+
+    await prisma.user.update({
+      where: { id: decoded.userId },
+      data: { password: hashed },
+    })
+
+    res.json({ success: true })
+  } catch (err) {
+    res.status(400).json({ error: 'Token invalide ou expiré' })
+  }
+}
+
+// pour delete un user par mail
+
+async function deleteUser(req, res) {
+  try {
+    const email = req.body.email
+    if (!email) return res.status(400).json({ error: 'Email requis' })
+
+    await prisma.user.delete({ where: { email } })
+    res.json({ success: true })
+  } catch (err) {
+    res.status(500).json({ error: err.message })
+  }
+}
+
+
+
+module.exports = { signup, confirmEmail, login, me, resetPassword, deleteUser }
